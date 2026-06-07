@@ -1,0 +1,20 @@
+{
+  "name": "exercise-routine-web-app-be",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "운동 루틴 PWA 푸시 알림 백엔드 (Web Push + VAPID + cron)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "gen-keys": "node scripts/gen-keys.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "web-push": "^3.6.7"
+  }
+}
