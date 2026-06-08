@@ -25,6 +25,31 @@ app.use(cors())
 app.use(express.json())
 
 const DEFAULT_WEEKDAYS = [1, 2, 4, 5] // 월·화·목·금 (프론트 TRAINING_WEEKDAYS와 동일)
+const DEFAULT_TZ = 'Asia/Seoul'
+
+/** 특정 IANA 타임존 기준의 현재 시(hour)/분(minute)/요일(weekday 0=일)을 반환.
+ *  Render 등 UTC 서버에서도 사용자 현지 시각으로 알림을 판정하기 위함. */
+function nowInTz(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      weekday: 'short',
+      hour12: false,
+    }).formatToParts(new Date())
+    const get = (t) => parts.find((p) => p.type === t)?.value
+    const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+    return {
+      hour: Number(get('hour')) % 24,
+      minute: Number(get('minute')),
+      weekday: weekdayMap[get('weekday')] ?? 0,
+    }
+  } catch {
+    const d = new Date() // 잘못된 tz면 서버 로컬로 폴백
+    return { hour: d.getHours(), minute: d.getMinutes(), weekday: d.getDay() }
+  }
+}
 
 /** 한 구독에 알림을 발송한다. 만료(404/410)면 'gone' 반환. */
 async function sendTo(record, payload) {
@@ -53,7 +78,13 @@ app.get('/vapidPublicKey', (_req, res) => res.type('text/plain').send(VAPID_PUBL
 
 // 구독 등록/갱신 (같은 endpoint면 덮어씀)
 app.post('/subscribe', async (req, res) => {
-  const { subscription, hour = 20, minute = 0, weekdays = DEFAULT_WEEKDAYS } = req.body || {}
+  const {
+    subscription,
+    hour = 20,
+    minute = 0,
+    weekdays = DEFAULT_WEEKDAYS,
+    timezone = DEFAULT_TZ,
+  } = req.body || {}
   if (!subscription?.endpoint) return res.status(400).json({ error: 'subscription이 필요합니다.' })
 
   const subs = await readSubs()
@@ -62,6 +93,7 @@ app.post('/subscribe', async (req, res) => {
     hour: Math.min(23, Math.max(0, Number(hour) || 0)),
     minute: Math.min(59, Math.max(0, Number(minute) || 0)),
     weekdays: Array.isArray(weekdays) ? weekdays : DEFAULT_WEEKDAYS,
+    timezone: typeof timezone === 'string' ? timezone : DEFAULT_TZ,
     updatedAt: Date.now(),
   }
   const idx = subs.findIndex((s) => s.subscription.endpoint === subscription.endpoint)
@@ -99,18 +131,10 @@ app.post('/test', async (req, res) => {
   res.json({ ok: true, sent, removed: gone.length })
 })
 
-// ── 예약 알림 cron: 매분 검사 ────────────────────────────────────
+// ── 예약 알림 cron: 매분 검사 (구독별 타임존 기준) ──────────────
 cron.schedule('* * * * *', async () => {
-  const now = new Date()
-  const hh = now.getHours()
-  const mm = now.getMinutes()
-  const wd = now.getDay()
-
   const subs = await readSubs()
-  const due = subs.filter(
-    (s) => s.hour === hh && s.minute === mm && (s.weekdays?.includes(wd) ?? true),
-  )
-  if (!due.length) return
+  if (!subs.length) return
 
   const payload = {
     title: '운동할 시간이에요 💪',
@@ -118,12 +142,17 @@ cron.schedule('* * * * *', async () => {
     url: '/',
   }
   const gone = []
-  for (const r of due) {
+  let sent = 0
+  for (const r of subs) {
+    const { hour, minute, weekday } = nowInTz(r.timezone || DEFAULT_TZ)
+    const due = r.hour === hour && r.minute === minute && (r.weekdays?.includes(weekday) ?? true)
+    if (!due) continue
     const result = await sendTo(r, payload)
     if (result === 'gone') gone.push(r.subscription.endpoint)
+    else if (result === 'sent') sent++
   }
   await pruneGone(gone)
-  console.log(`[cron ${hh}:${String(mm).padStart(2, '0')}] 알림 ${due.length - gone.length}건 발송`)
+  if (sent || gone.length) console.log(`[cron] 알림 ${sent}건 발송, 만료 ${gone.length}건 제거`)
 })
 
 app.listen(PORT, () => {

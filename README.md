@@ -20,11 +20,11 @@ npm run dev          # http://localhost:4000
 |---|---|---|
 | GET | `/health` | 상태 확인 |
 | GET | `/vapidPublicKey` | 구독에 필요한 공개 키 (프론트가 자동 수신) |
-| POST | `/subscribe` | 구독 등록/갱신 `{ subscription, hour, minute, weekdays }` |
+| POST | `/subscribe` | 구독 등록/갱신 `{ subscription, hour, minute, weekdays, timezone }` |
 | POST | `/unsubscribe` | 구독 해제 `{ endpoint }` |
 | POST | `/test` | 테스트 알림 즉시 발송 `{ endpoint? }` |
 
-예약 알림은 `node-cron`이 **매분** 검사해, 구독에 저장된 `hour:minute`이고 `weekdays`에 해당하는 요일이면 발송합니다.
+예약 알림은 `node-cron`이 **매분** 검사해, 구독에 저장된 `hour:minute`이고 `weekdays`에 해당하는 요일이면 발송합니다. 판정은 **각 구독의 `timezone`(프론트가 자동 전송, 예: `Asia/Seoul`) 기준**이라, 서버가 UTC인 Render에 올려도 사용자 현지 시각에 정확히 발송됩니다.
 
 ## 배포 (무료 호스팅 예: Render)
 
